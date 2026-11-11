@@ -1,0 +1,17 @@
+{
+  "position": "bottom",
+  "hideDelayMs": 400,
+  "iconSize": 40,
+  "apps": [
+    "brave-browser",
+    "org.gnome.Nautilus",
+    "Alacritty",
+    "com.microsoft.VSCode",
+    "obsidian",
+    "spotify",
+    "Discord",
+    "signal",
+    "steam",
+    "com.obsproject.Studio"
+  ]
+}

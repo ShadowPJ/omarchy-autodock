@@ -1,0 +1,5 @@
+{
+  "menu.open": "Open",
+  "menu.newWindow": "New window",
+  "menu.quit": { "one": "Quit", "other": "Quit %1 windows" }
+}

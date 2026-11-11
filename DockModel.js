@@ -93,6 +93,26 @@ function moved(list, index, delta) {
   return out
 }
 
+// The slot a dragged app would land in: its own index moved by however many
+// whole slots the pointer has travelled, clamped to the dock.
+function dropIndex(index, delta, slotSize, count) {
+  if (!(slotSize > 0) || count <= 0) return index
+  return Math.max(0, Math.min(count - 1, index + Math.round(delta / slotSize)))
+}
+
+// Reorders the shown (installed) apps within the full app list. The shown
+// ids move from one slot to another; ids that are not shown keep their
+// positions, and the shown ones refill the slots they occupied.
+function reorderShown(apps, shown, fromIndex, toIndex) {
+  var order = moved(shown, fromIndex, toIndex - fromIndex)
+  var isShown = {}
+  for (var i = 0; i < shown.length; i++) isShown[shown[i]] = true
+  var next = 0
+  var out = []
+  for (var j = 0; j < apps.length; j++) out.push(isShown[apps[j]] ? order[next++] : apps[j])
+  return out
+}
+
 // Picks the window to focus for an app: one on the current workspace first,
 // then the most recently listed elsewhere.
 function pickWindow(windows, workspaceId) {

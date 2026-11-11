@@ -9,6 +9,7 @@ workspace (tiled or floating).
 - Stays away completely while a window is fullscreen.
 - Left click: focus the app (or start it if it is not running).
 - Middle click: open a new window.
+- Drag an icon along the dock to reorder it.
 - Right click: menu with *New window*, *Quit*, *Remove from dock* and *Dock settings*.
 - A settings panel to pick, search and reorder the dock's apps.
 - A dot marks apps that are running.

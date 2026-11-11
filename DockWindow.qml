@@ -4,6 +4,7 @@ import Quickshell.Hyprland
 import Quickshell.Wayland
 import qs.Commons
 import qs.Commons as Commons
+import "DockModel.js" as DockModel
 
 // One screen's auto dock. The layer surface stays mapped; while the dock is
 // tucked away only a thin strip along the screen edge takes input, so clicks
@@ -44,10 +45,35 @@ PanelWindow {
   }
 
   property bool revealed: false
+
+  // The app being dragged along the dock, how far the pointer has taken it,
+  // and the slot it would land in.
+  property int dragIndex: -1
+  property int dropIndex: -1
+  property real dragOffset: 0
+  readonly property bool dragging: dragIndex >= 0
+  // Off while a drop resets the slots, so they snap to the new order rather
+  // than sliding back from where they stepped aside.
+  property bool animateShifts: true
+  // After a drop the slots have moved under a still pointer, so hover is
+  // stale until it moves again.
+  property bool hoverStale: false
+  property point dropPoint
+
+  function endDrag() {
+    window.animateShifts = false
+    Qt.callLater(function() { window.animateShifts = true })
+    window.hoverStale = true
+    window.dragIndex = -1
+    window.dropIndex = -1
+    window.dragOffset = 0
+    hideTimer.restart()
+  }
+
   property var menuItem: null
   property Item menuSlot: null
   readonly property bool menuOpen: menuItem !== null
-  readonly property bool open: !fullscreen && (revealed || menuOpen)
+  readonly property bool open: !fullscreen && (revealed || menuOpen || dragging)
 
   readonly property int gap: Style.spacing.lg
   readonly property int iconSize: Math.round((dock ? dock.config.iconSize : 40) * Style.fontScale)
@@ -106,7 +132,7 @@ PanelWindow {
     id: hideTimer
     interval: window.dock ? window.dock.config.hideDelayMs : 400
     onTriggered: {
-      if (!bodyHover.hovered && !edgeHover.hovered && !window.menuOpen) window.revealed = false
+      if (!bodyHover.hovered && !edgeHover.hovered && !window.menuOpen && !window.dragging) window.revealed = false
     }
   }
 
@@ -172,6 +198,12 @@ PanelWindow {
     HoverHandler {
       id: bodyHover
       onHoveredChanged: if (!hovered) hideTimer.restart()
+      // Only a real move clears stale hover; the release reports the pointer too.
+      onPointChanged: {
+        if (!window.hoverStale || window.dragging) return
+        var at = point.position
+        if (Math.hypot(at.x - window.dropPoint.x, at.y - window.dropPoint.y) > Style.space(4)) window.hoverStale = false
+      }
     }
 
     Grid {
@@ -181,7 +213,7 @@ PanelWindow {
 
       Repeater {
         id: appRepeater
-        model: window.dock ? window.dock.items : []
+        model: window.dock ? window.dock.itemModel : null
         delegate: AppSlot {}
       }
 
@@ -227,22 +259,91 @@ PanelWindow {
   component AppSlot: Item {
     id: slot
 
-    required property var modelData
+    required property string key
     required property int index
-    readonly property bool running: modelData.windows.length > 0
-    readonly property bool hovered: mouse.containsMouse
-    readonly property string label: modelData.name
+    readonly property var modelData: window.dock ? window.dock.itemFor(key) : null
+    readonly property bool running: !!modelData && modelData.windows.length > 0
+    readonly property bool hovered: mouse.containsMouse && !window.dragging && !window.hoverStale
+    readonly property string label: modelData ? modelData.name : ""
+    readonly property bool lifted: window.dragIndex === index
+    property point pressPoint
+    property bool dragged: false
 
+    // Slots between where the dragged app was and where it would land step
+    // aside to make room; the dragged one follows the pointer.
+    readonly property real shift: !window.dragging ? 0
+      : lifted ? window.dragOffset
+      : (window.dragIndex < index && index <= window.dropIndex) ? -window.slotSize
+      : (window.dropIndex <= index && index < window.dragIndex) ? window.slotSize
+      : 0
+    property real displayedShift: shift
+    Behavior on displayedShift {
+      enabled: window.animateShifts && window.dragging && !slot.lifted
+      NumberAnimation { duration: Style.duration(150); easing.type: Easing.Bezier; easing.bezierCurve: Style.easeOut }
+    }
+
+    z: lifted ? 1 : 0
     width: window.slotSize
     height: window.slotSize
+
+    // The slot, and the pointer handling in it, stays put; only its content
+    // moves. Reading the pointer through a moving item would feed each move
+    // back into the next.
+    function bodyPoint(event) {
+      return slot.mapToItem(body, event.x, event.y)
+    }
 
     MouseArea {
       id: mouse
       anchors.fill: parent
       hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
+      cursorShape: slot.lifted ? Qt.ClosedHandCursor : Qt.PointingHandCursor
       acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+      // Keeps the pointer while dragging, even past the dock's ends.
+      preventStealing: true
+
+      onPressed: function(event) {
+        slot.dragged = false
+        if (event.button === Qt.LeftButton) slot.pressPoint = slot.bodyPoint(event)
+      }
+
+      onPositionChanged: function(event) {
+        if (!(mouse.pressedButtons & Qt.LeftButton)) return
+        var point = slot.bodyPoint(event)
+        var delta = window.vertical ? point.y - slot.pressPoint.y : point.x - slot.pressPoint.x
+        // A press that wanders is a drag in the making, not a click.
+        if (Math.hypot(point.x - slot.pressPoint.x, point.y - slot.pressPoint.y) > Style.space(4)) slot.dragged = true
+        if (!window.dragging) {
+          if (Math.abs(delta) < Style.space(6)) return
+          window.closeMenu()
+          // Landing slot first, so no slot counts as in between for a frame.
+          window.dropIndex = slot.index
+          window.dragIndex = slot.index
+        }
+        if (!slot.lifted) return
+        window.dragOffset = delta
+        window.dropIndex = DockModel.dropIndex(slot.index, delta, window.slotSize, appRepeater.count)
+      }
+
+      onReleased: function(event) {
+        if (!slot.lifted) return
+        window.dropPoint = slot.bodyPoint(event)
+        var from = window.dragIndex
+        var to = window.dropIndex
+        slot.dragged = true
+        window.endDrag()
+        window.dock.reorder(from, to)
+      }
+
+      onCanceled: if (slot.lifted) window.endDrag()
+
       onClicked: function(event) {
+        // A drag ends in a release over the app, which is not a click on it.
+        if (slot.dragged) {
+          slot.dragged = false
+          return
+        }
+        if (!slot.modelData) return
         if (event.button === Qt.RightButton) {
           window.menuItem = slot.modelData
           window.menuSlot = slot
@@ -254,35 +355,46 @@ PanelWindow {
       }
     }
 
-    Image {
-      x: window.iconInset
-      y: window.iconInset
-      width: window.iconSize
-      height: window.iconSize
-      sourceSize: Qt.size(window.iconSize * 2, window.iconSize * 2)
-      source: window.dock ? window.dock.iconFor(slot.modelData) : ""
-      fillMode: Image.PreserveAspectFit
-      asynchronous: true
-      smooth: true
-      mipmap: true
-      scale: slot.hovered ? 1.15 : 1
-      transformOrigin: window.popOrigin
-      Behavior on scale { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
-    }
+    Item {
+      id: content
+      width: slot.width
+      height: slot.height
+      transform: Translate {
+        x: window.vertical ? 0 : slot.displayedShift
+        y: window.vertical ? slot.displayedShift : 0
+      }
 
-    // A dot on the edge side marks a running app.
-    Rectangle {
-      visible: slot.running
-      width: Math.max(4, Math.round(window.iconSize * 0.12))
-      height: width
-      radius: width / 2
-      color: Commons.Color.accent
-      x: window.position === "left" ? 1
-        : window.position === "right" ? slot.width - width - 1
-        : Math.round((slot.width - width) / 2)
-      y: window.position === "top" ? 1
-        : window.position === "bottom" ? slot.height - height - 1
-        : Math.round((slot.height - height) / 2)
+      Image {
+        x: window.iconInset
+        y: window.iconInset
+        width: window.iconSize
+        height: window.iconSize
+        sourceSize: Qt.size(window.iconSize * 2, window.iconSize * 2)
+        source: window.dock && slot.modelData ? window.dock.iconFor(slot.modelData) : ""
+        fillMode: Image.PreserveAspectFit
+        asynchronous: true
+        smooth: true
+        mipmap: true
+        scale: slot.lifted || slot.hovered ? 1.15 : 1
+        opacity: slot.lifted ? 0.85 : 1
+        transformOrigin: window.popOrigin
+        Behavior on scale { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
+      }
+
+      // A dot on the edge side marks a running app.
+      Rectangle {
+        visible: slot.running
+        width: Math.max(4, Math.round(window.iconSize * 0.12))
+        height: width
+        radius: width / 2
+        color: Commons.Color.accent
+        x: window.position === "left" ? 1
+          : window.position === "right" ? slot.width - width - 1
+          : Math.round((slot.width - width) / 2)
+        y: window.position === "top" ? 1
+          : window.position === "bottom" ? slot.height - height - 1
+          : Math.round((slot.height - height) / 2)
+      }
     }
   }
 
@@ -314,7 +426,7 @@ PanelWindow {
       }
       return null
     }
-    visible: window.open && !window.menuOpen && !!slot
+    visible: window.open && !window.menuOpen && !window.dragging && !!slot
     width: label.implicitWidth + Style.spacing.lg * 2
     height: label.implicitHeight + Style.spacing.sm * 2
     x: window.popupX(slot, tooltip)

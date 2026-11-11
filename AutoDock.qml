@@ -77,6 +77,16 @@ Item {
     root.saveApps(DockModel.moved(root.config.apps, index, delta))
   }
 
+  // Moves a shown app from one dock slot to another. Slots count only the
+  // installed apps; ones that are not installed keep their place in the list.
+  function reorder(fromIndex, toIndex) {
+    if (fromIndex === toIndex) return
+    var shown = root.items.map(function(item) { return item.id })
+    var apps = DockModel.reorderShown(root.config.apps, shown, fromIndex, toIndex)
+    // Show the new order at once; the saved file catches up.
+    root.saveApps(apps)
+  }
+
   // Configured apps that are installed, each with its open windows. An app
   // that is not installed is skipped until it is.
   readonly property var items: {
@@ -97,6 +107,39 @@ Item {
       out.push({ id: entry.id, name: entry.name, icon: entry.icon, entry: entry, windows: windows })
     }
     return out
+  }
+
+  readonly property var itemsById: {
+    var byId = {}
+    for (var i = 0; i < root.items.length; i++) byId[root.items[i].id] = root.items[i]
+    return byId
+  }
+
+  function itemFor(id) {
+    return root.itemsById[id] || null
+  }
+
+  // The dock's slots follow this model rather than the items list itself, so
+  // a slot survives a window opening or closing (which rebuilds the list)
+  // instead of being recreated under the pointer mid-drag.
+  property alias itemModel: itemModel
+  ListModel { id: itemModel }
+
+  onItemsChanged: syncItemModel()
+  Component.onCompleted: syncItemModel()
+
+  function syncItemModel() {
+    var ids = root.items.map(function(item) { return item.id })
+    for (var i = 0; i < ids.length; i++) {
+      if (i < itemModel.count && itemModel.get(i).key === ids[i]) continue
+      var found = -1
+      for (var j = i + 1; j < itemModel.count; j++) {
+        if (itemModel.get(j).key === ids[i]) { found = j; break }
+      }
+      if (found >= 0) itemModel.move(found, i, 1)
+      else itemModel.insert(i, { key: ids[i] })
+    }
+    if (itemModel.count > ids.length) itemModel.remove(ids.length, itemModel.count - ids.length)
   }
 
   // Whether a window's app id belongs to this desktop entry.

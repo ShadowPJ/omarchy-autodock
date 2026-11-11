@@ -139,9 +139,10 @@ PanelWindow {
   Rectangle {
     id: body
 
-    readonly property int count: appRepeater.count
-    width: window.vertical ? window.slotSize + window.padding * 2 : Math.max(1, count) * window.slotSize + window.padding * 2
-    height: window.vertical ? Math.max(1, count) * window.slotSize + window.padding * 2 : window.slotSize + window.padding * 2
+    // The apps plus the settings button at the end.
+    readonly property int count: appRepeater.count + 1
+    width: window.vertical ? window.slotSize + window.padding * 2 : count * window.slotSize + window.padding * 2
+    height: window.vertical ? count * window.slotSize + window.padding * 2 : window.slotSize + window.padding * 2
 
     radius: Math.max(Style.cornerRadius, Style.spacing.lg)
     color: Commons.Color.bar.background
@@ -176,13 +177,50 @@ PanelWindow {
     Grid {
       id: slots
       anchors.centerIn: parent
-      columns: window.vertical ? 1 : Math.max(1, appRepeater.count)
+      columns: window.vertical ? 1 : body.count
 
       Repeater {
         id: appRepeater
         model: window.dock ? window.dock.items : []
         delegate: AppSlot {}
       }
+
+      SettingsSlot { id: settingsSlot }
+    }
+  }
+
+  // Opens the settings panel to choose the dock's apps.
+  component SettingsSlot: Item {
+    id: gear
+
+    readonly property bool hovered: gearMouse.containsMouse
+    readonly property string label: strings.t("dock.settings")
+
+    width: window.slotSize
+    height: window.slotSize
+
+    MouseArea {
+      id: gearMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: {
+        window.close()
+        window.dock.openSettings()
+      }
+    }
+
+    Text {
+      anchors.centerIn: parent
+      textFormat: Text.PlainText
+      text: "⚙"
+      color: Commons.Color.bar.text
+      opacity: gear.hovered ? 1 : 0.6
+      font.family: Style.font.family
+      font.pixelSize: Math.round(window.iconSize * 0.6)
+      scale: gear.hovered ? 1.15 : 1
+      transformOrigin: window.popOrigin
+      Behavior on scale { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
     }
   }
 
@@ -193,6 +231,7 @@ PanelWindow {
     required property int index
     readonly property bool running: modelData.windows.length > 0
     readonly property bool hovered: mouse.containsMouse
+    readonly property string label: modelData.name
 
     width: window.slotSize
     height: window.slotSize
@@ -268,6 +307,7 @@ PanelWindow {
   Rectangle {
     id: tooltip
     readonly property Item slot: {
+      if (settingsSlot.hovered) return settingsSlot
       for (var i = 0; i < appRepeater.count; i++) {
         var item = appRepeater.itemAt(i)
         if (item && item.hovered) return item
@@ -288,7 +328,7 @@ PanelWindow {
       id: label
       anchors.centerIn: parent
       textFormat: Text.PlainText
-      text: tooltip.slot ? tooltip.slot.modelData.name : ""
+      text: tooltip.slot ? tooltip.slot.label : ""
       color: Commons.Color.tooltip.text
       font.family: Style.font.family
       font.pixelSize: Style.font.body
@@ -327,6 +367,16 @@ PanelWindow {
         text: strings.tn("menu.quit", menu.item ? menu.item.windows.length : 0)
           .arg(Commons.I18n.formatNumber(menu.item ? menu.item.windows.length : 0))
         onTriggered: window.dock.quit(menu.item)
+      }
+
+      MenuRow {
+        text: strings.t("menu.remove")
+        onTriggered: window.dock.removeApp(menu.item.id)
+      }
+
+      MenuRow {
+        text: strings.t("dock.settings")
+        onTriggered: window.dock.openSettings()
       }
     }
   }

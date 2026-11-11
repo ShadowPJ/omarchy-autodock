@@ -1,5 +1,13 @@
 {
   "menu.open": "Open",
   "menu.newWindow": "New window",
-  "menu.quit": { "one": "Quit", "other": "Quit %1 windows" }
+  "menu.quit": { "one": "Quit", "other": "Quit %1 windows" },
+  "menu.remove": "Remove from dock",
+  "dock.settings": "Dock settings",
+  "settings.title": "Dock apps",
+  "settings.inDock": { "one": "%1 app in the dock", "other": "%1 apps in the dock" },
+  "settings.empty": "The dock is empty. Add apps from the list on the right.",
+  "settings.search": "Search apps to add…",
+  "settings.noResults": "No apps found",
+  "settings.notInstalled": "%1 (not installed)"
 }

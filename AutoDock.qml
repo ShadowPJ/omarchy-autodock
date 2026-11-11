@@ -7,8 +7,11 @@ import "DockModel.js" as DockModel
 
 // Auto Dock: a curated row of apps on every workspace that waits tucked
 // against a screen edge and slides out when the pointer touches that edge.
-// The apps, edge, icon size and hide delay come from config.json next to this
-// file, which is watched, so edits apply on save.
+//
+// Settings come from two files, both watched so edits apply on save:
+//   - config.json next to this file: the plugin's defaults, tracked in git.
+//   - ~/.config/omarchy/autodock.json: the user's choices, written by the
+//     settings panel; any key it holds wins over the default.
 Item {
   id: root
 
@@ -17,28 +20,61 @@ Item {
 
   readonly property var appLibrary: shell ? shell.appLibrary : null
 
-  // Used when config.json is missing or lists nothing usable.
-  readonly property var defaultApps: [
-    "brave-browser", "org.gnome.Nautilus", "Alacritty", "com.microsoft.VSCode",
-    "obsidian", "spotify", "Discord", "signal", "steam", "com.obsproject.Studio"
-  ]
-
-  property var config: DockModel.parseConfig("{}", defaultApps)
+  property string defaultsText: ""
+  property string userText: ""
+  readonly property var config: DockModel.effectiveConfig(defaultsText, userText)
   readonly property string position: config.position
   readonly property bool vertical: DockModel.isVertical(position)
 
-  readonly property string configPath: {
-    var url = String(Qt.resolvedUrl("config.json"))
-    return url.indexOf("file://") === 0 ? decodeURIComponent(url.slice(7)) : url
+  function localPath(url) {
+    var value = String(url)
+    return value.indexOf("file://") === 0 ? decodeURIComponent(value.slice(7)) : value
+  }
+
+  readonly property string userConfigPath: {
+    var base = Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")
+    return base + "/omarchy/autodock.json"
   }
 
   FileView {
-    id: configFile
-    path: root.configPath
+    id: defaultsFile
+    path: root.localPath(Qt.resolvedUrl("config.json"))
     watchChanges: true
     onFileChanged: reload()
-    onLoaded: root.config = DockModel.parseConfig(text(), root.defaultApps)
-    onLoadFailed: root.config = DockModel.parseConfig("{}", root.defaultApps)
+    onLoaded: root.defaultsText = text()
+    onLoadFailed: root.defaultsText = ""
+  }
+
+  FileView {
+    id: userFile
+    path: root.userConfigPath
+    watchChanges: true
+    atomicWrites: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.userText = text()
+    onLoadFailed: root.userText = ""
+  }
+
+  // Saves a new app list to the user's file. The dock follows at once rather
+  // than waiting for the file watcher.
+  function saveApps(apps) {
+    var text = DockModel.withApps(root.userText, root.config, apps)
+    root.userText = text
+    userFile.setText(text)
+  }
+
+  function addApp(id) {
+    if (!id || root.config.apps.indexOf(id) >= 0) return
+    root.saveApps(root.config.apps.concat([id]))
+  }
+
+  function removeApp(id) {
+    root.saveApps(root.config.apps.filter(function(other) { return other !== id }))
+  }
+
+  function moveApp(index, delta) {
+    root.saveApps(DockModel.moved(root.config.apps, index, delta))
   }
 
   // Configured apps that are installed, each with its open windows. An app
@@ -72,9 +108,21 @@ Item {
     return !!guess && guess.id === entry.id
   }
 
+  function iconSource(icon) {
+    return root.appLibrary ? root.appLibrary.iconSource(icon) : Quickshell.iconPath(String(icon || "application-x-executable"), true)
+  }
+
   function iconFor(item) {
-    var icon = item && item.icon ? item.icon : (item ? item.id : "")
-    return root.appLibrary ? root.appLibrary.iconSource(icon) : Quickshell.iconPath(icon, true)
+    return root.iconSource(item && item.icon ? item.icon : (item ? item.id : ""))
+  }
+
+  // Every app the launcher would show, filtered by a search query.
+  function allApps(query) {
+    if (root.appLibrary) return root.appLibrary.sortedEntries(query)
+    var needle = String(query || "").toLowerCase()
+    return DesktopEntries.applications.values.filter(function(entry) {
+      return !entry.noDisplay && (!needle || String(entry.name).toLowerCase().indexOf(needle) >= 0)
+    }).sort(function(a, b) { return String(a.name).localeCompare(String(b.name)) })
   }
 
   function launch(item) {
@@ -101,10 +149,18 @@ Item {
     for (var i = 0; i < windows.length; i++) windows[i].toplevel.close()
   }
 
-  // `omarchy-shell shadowpj.autodock reload` re-reads config.json.
+  function openSettings() { settings.shown = true }
+  function toggleSettings() { settings.shown = !settings.shown }
+
+  //   omarchy-shell shadowpj.autodock settings   opens the settings panel
+  //   omarchy-shell shadowpj.autodock reload     re-reads both config files
   ShellIpc {
     target: "shadowpj.autodock"
-    function reload(): void { configFile.reload() }
+    function settings(): void { root.toggleSettings() }
+    function reload(): void {
+      defaultsFile.reload()
+      userFile.reload()
+    }
   }
 
   Variants {
@@ -117,5 +173,10 @@ Item {
         dock: root
       }
     }
+  }
+
+  Settings {
+    id: settings
+    dock: root
   }
 }

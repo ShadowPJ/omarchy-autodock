@@ -1,5 +1,13 @@
 {
   "menu.open": "Abrir",
   "menu.newWindow": "Nueva ventana",
-  "menu.quit": { "one": "Cerrar", "other": "Cerrar %1 ventanas" }
+  "menu.quit": { "one": "Cerrar", "other": "Cerrar %1 ventanas" },
+  "menu.remove": "Quitar del dock",
+  "dock.settings": "Ajustes del dock",
+  "settings.title": "Apps del dock",
+  "settings.inDock": { "one": "%1 app en el dock", "other": "%1 apps en el dock" },
+  "settings.empty": "El dock está vacío. Añade apps desde la lista de la derecha.",
+  "settings.search": "Buscar apps para añadir…",
+  "settings.noResults": "No se encontraron apps",
+  "settings.notInstalled": "%1 (no instalada)"
 }

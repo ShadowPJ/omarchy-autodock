@@ -4,6 +4,8 @@ An Omarchy shell plugin: a dock of your favourite apps that hides itself against
 the screen edge and slides out when the pointer touches that edge, on every
 workspace (tiled or floating).
 
+![Auto Dock and its settings panel](preview.png)
+
 - Hidden by default; push the pointer to the edge to call it out.
 - Hides again shortly after the pointer leaves.
 - Stays away completely while a window is fullscreen.
@@ -28,6 +30,18 @@ ln -sfn "$PWD" ~/.config/omarchy/plugins/shadowpj.autodock
 omarchy-shell shell rescanPlugins
 omarchy plugin enable shadowpj.autodock
 ```
+
+No external dependencies: it uses only what Omarchy's shell already ships
+(Quickshell, Hyprland).
+
+## Remove
+
+```bash
+omarchy plugin remove shadowpj.autodock
+rm -f ~/.config/omarchy/autodock.json   # optional: your saved app list
+```
+
+To keep it installed but turn it off: `omarchy plugin disable shadowpj.autodock`.
 
 ## Choose the apps
 
